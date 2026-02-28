@@ -19,7 +19,7 @@ from sqlalchemy.orm import (
     relationship
 )
 
-from database import Base
+from database.models.base import Base
 
 
 movie_genres = Table(
@@ -41,6 +41,13 @@ movie_stars = Table(
     Base.metadata,
     Column("movie_id", ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True),
     Column("star_id", ForeignKey("stars.id", ondelete="CASCADE"), primary_key=True),
+)
+
+user_favorites = Table(
+    "user_favorites",
+    Base.metadata,
+    Column("user_id", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("movie_id", ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
@@ -146,9 +153,15 @@ class MovieModel(Base):
         back_populates="movies"
     )
 
+    favorited_by: Mapped[List["UserModel"]] = relationship(
+        "UserModel",
+        secondary=user_favorites,
+        back_populates="favorites"
+    )
+
     __table_args__ = (
         UniqueConstraint("name", "year", "time", name="unique_movie_constraint"),
     )
 
     def __repr__(self):
-        return f"<Movie(name='{self.name}'"
+        return f"<Movie(name='{self.name}', year={self.year}, time={self.time})>"
