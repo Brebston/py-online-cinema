@@ -6,8 +6,9 @@ from pydantic import EmailStr
 from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
+from database.models.base import Base
+from database.models.movies import user_favorites
 from database.validators import accounts as validators
-from database import Base
 from security.passwords import hash_password, verify_password
 from security.utils import generate_secure_token
 
@@ -26,7 +27,7 @@ class GenderEnum(str, enum.Enum):
 class UserGroupModel(Base):
     __tablename__ = "user_groups"
 
-    id: Mapped[int] = mapped_column(Integer, primaty_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[UserGroupEnum] = mapped_column(Enum(UserGroupEnum), nullable=False, unique=True)
 
     users: Mapped[List["UserModel"]] = relationship("UserModel", back_populates="group")
@@ -38,8 +39,8 @@ class UserGroupModel(Base):
 class UserModel(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primaty_key=True, autoincrement=True)
-    email: Mapped[EmailStr] = mapped_column(String(255) ,unique=True, nullable=False, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[EmailStr] = mapped_column(String(255), unique=True, nullable=False, index=True)
     _hashed_password: Mapped[str] = mapped_column("hashed_password", String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -76,6 +77,12 @@ class UserModel(Base):
         cascade="all, delete-orphan"
     )
 
+    favorites: Mapped[List["MovieModel"]] = relationship(
+        "MovieModel",
+        secondary=user_favorites,
+        back_populates="favorited_by"
+    )
+
     def __repr__(self):
         return f"<UserModel(id={self.id}, email={self.email}, is_active={self.is_active})>"
 
@@ -84,12 +91,6 @@ class UserModel(Base):
 
     @classmethod
     def create(cls, email: str, raw_password: str, group_id: int | Mapped[int]) -> "UserModel":
-        """
-        Factory method to create a new UserModel instance.
-
-        This method simplifies the creation of a new user by handling
-        password hashing and setting required attributes.
-        """
         user = cls(email=email, group_id=group_id)
         user.password = raw_password
         return user
@@ -100,16 +101,10 @@ class UserModel(Base):
 
     @password.setter
     def password(self, raw_password: str) -> None:
-        """
-        Set the user's password after validating its strength and hashing it.
-        """
         validators.validate_password_strength(raw_password)
         self._hashed_password = hash_password(raw_password)
 
     def verify_password(self, raw_password: str) -> bool:
-        """
-        Verify the provided password against the stored hashed password.
-        """
         return verify_password(raw_password, self._hashed_password)
 
     @validates("email")
@@ -120,13 +115,13 @@ class UserModel(Base):
 class UserProfileModel(Base):
     __tablename__ = "user_profiles"
 
-    id: Mapped[int] = mapped_column(Integer, primaty_key=True, autoincrement=True)
-    first_name: Mapped[str] = mapped_column(String(255))
-    last_name: Mapped[str] = mapped_column(String(255))
-    avatar: Mapped[Optional[str]] = mapped_column(String(255))
-    gender: Mapped[Optional[GenderEnum]] = mapped_column(Enum(GenderEnum))
-    date_of_birth: Mapped[Optional[date]] = mapped_column(Date)
-    info: Mapped[Optional[str]] = mapped_column(String(255))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    avatar: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    gender: Mapped[Optional[GenderEnum]] = mapped_column(Enum(GenderEnum), nullable=True)
+    date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    info: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -145,11 +140,10 @@ class UserProfileModel(Base):
         )
 
 
-
 class TokenBaseModel(Base):
     __abstract__ = True
 
-    id: Mapped[int] = mapped_column(Integer, primaty_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     token: Mapped[str] = mapped_column(
         String(64),
         unique=True,
@@ -189,10 +183,15 @@ class PasswordResetTokenModel(TokenBaseModel):
 class RefreshTokenModel(TokenBaseModel):
     __tablename__ = "refresh_tokens"
 
-    user: Mapped["UserModel"] = relationship("UserModel", back_populates="refresh_token")
+    user: Mapped["UserModel"] = relationship("UserModel", back_populates="refresh_tokens")
     token: Mapped[str] = mapped_column(
         String(512),
         unique=True,
         nullable=False,
         default=generate_secure_token
     )
+
+    @classmethod
+    def create(cls, user_id: int, days_valid: int, token: str) -> "RefreshTokenModel":
+        expires_at = datetime.now(timezone.utc) + timedelta(days=days_valid)
+        return cls(user_id=user_id, token=token, expires_at=expires_at)
