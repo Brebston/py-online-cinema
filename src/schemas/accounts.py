@@ -60,3 +60,21 @@ class RefreshTokenRequestSchema(BaseModel):
 
 class RefreshTokenResponseSchema(BaseModel):
     access_token: str
+
+
+class LogoutRequestSchema(BaseModel):
+    refresh_token: str
+
+
+class ChangePasswordRequestSchema(BaseModel):
+    old_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        return accounts_validators.validate_password_strength(value)
+
+
+class ResendActivationRequestSchema(BaseModel):
+    email: EmailStr
